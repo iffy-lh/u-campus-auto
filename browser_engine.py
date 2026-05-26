@@ -68,17 +68,20 @@ SELECTORS = {
             "input[placeholder*='密码']",
         ],
         "login_btn": [
-            "button[type='submit']",
-            "button.login-btn",
+            "button#login",
+            "button.btn-login",
             "button:has-text('登录')",
+            "button[type='submit']",
             "a:has-text('登录')",
             ".el-button--primary",
-            "button.el-button.el-button--primary",
-            "button[type='button']:has-text('登录')",
-            "span:has-text('登录')",
-            "div.login-btn",
-            "[class*='login'] button",
-            "[class*='Login'] button",
+        ],
+        "mfa_input": [
+            "input[name='mfa-code']",
+            "input[placeholder*='动态码']",
+        ],
+        "mfa_btn": [
+            "button#mfa-login",
+            "button:has-text('登录')",
         ],
         "captcha_img": [
             "img.captcha",
@@ -345,13 +348,13 @@ class BrowserEngine:
 
         self._page = await self._context.new_page()
 
-        # 注入反检测脚本
-        await self._page.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-            Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en'] });
-            window.chrome = { runtime: {} };
-        """)
+        # 使用 playwright-stealth 注入反检测脚本
+        try:
+            from playwright_stealth import stealth_async
+            await stealth_async(self._page)
+            log("反检测脚本已注入", "info")
+        except ImportError:
+            pass
 
         log("浏览器启动成功", "success")
 
@@ -445,82 +448,86 @@ class BrowserEngine:
         self,
         username: str,
         password: str,
-        login_url: str = "https://u.unipus.cn/user/login",
+        login_url: str = "https://uai.unipus.cn/login",
         captcha_callback: Optional[Callable] = None,
     ) -> bool:
-        """
-        登录 U 校园
-        captcha_callback: 如果需要验证码，调用此回调让用户手动输入
-        """
         log("开始登录流程...", "step")
         await self.goto(login_url)
-        await asyncio.sleep(2)
-
-        # 填写用户名
-        if not await self.fill_any(SELECTORS["login"]["username_input"], username):
-            log("未找到用户名输入框", "error")
-            return False
-        log("已填写用户名", "info")
-
-        # 填写密码
-        if not await self.fill_any(SELECTORS["login"]["password_input"], password):
-            log("未找到密码输入框", "error")
-            return False
-        log("已填写密码", "info")
-
-        # 检查验证码
-        captcha_img = await self.find_element(SELECTORS["login"]["captcha_img"], timeout=3000)
-        if captcha_img:
-            log("检测到验证码", "warn")
-            if captcha_callback:
-                captcha_code = await captcha_callback(self.page)
-                if captcha_code:
-                    await self.fill_any(SELECTORS["login"]["captcha_input"], captcha_code)
-            else:
-                log("等待手动输入验证码...", "warn")
-                await asyncio.sleep(15)
-
-        # 尝试点击登录按钮
-        clicked = await self.click_any(SELECTORS["login"]["login_btn"])
-
-        # 如果没找到按钮，尝试按 Enter 提交表单
-        if not clicked:
-            log("未找到登录按钮，尝试按 Enter 提交...", "warn")
-            await self.page.keyboard.press("Enter")
-
-        # 等待页面跳转
         await asyncio.sleep(5)
 
-        # 检查是否登录成功（多重验证）
+        # SSO login page
+        try:
+            await self.page.wait_for_selector("input[name='username']", timeout=15000)
+        except Exception:
+            log("登录页面加载超时，当前URL: " + self.page.url, "error")
+            await self.page.screenshot(path="login_debug.png")
+            return False
+
+        await self.page.fill("input[name='username']", username)
+        log("已填写用户名", "info")
+        await self.page.fill("input[name='password']", password)
+        log("已填写密码", "info")
+
+        # 检查是否有图形验证码
+        try:
+            captcha_input = await self.page.wait_for_selector("input[name='code']", timeout=3000)
+            if captcha_input:
+                log("需要图形验证码，正在截图...", "warn")
+                await self.page.screenshot(path="captcha.png")
+                code = input("请查看 captcha.png，输入图形验证码: ").strip()
+                if code:
+                    await captcha_input.fill(code)
+        except Exception:
+            pass
+
+        # 点击登录
+        try:
+            await self.page.click("button#login", timeout=5000)
+            log("已点击登录按钮", "info")
+        except Exception:
+            log("未找到登录按钮，按 Enter 提交", "warn")
+            await self.page.keyboard.press("Enter")
+
+        await asyncio.sleep(5)
+
+        # 检查 MFA 动态验证码
+        try:
+            mfa_el = await self.page.wait_for_selector("input[name='mfa-code']", timeout=5000)
+            if mfa_el:
+                log("需要动态验证码，请查看手机短信...", "warn")
+                code = input("请输入6位动态验证码: ").strip()
+                if code:
+                    await mfa_el.fill(code)
+                    await self.page.click("button#mfa-login", timeout=5000)
+                    await asyncio.sleep(5)
+        except Exception:
+            pass
+
+        await asyncio.sleep(3)
         current_url = self.page.url
 
-        # 情况1: 跳转到首页
-        if "index.html" in current_url or "home" in current_url.lower():
-            if "logout" in current_url.lower():
-                log(f"检测到 logout 参数，尝试清除后重新访问...", "warn")
-                # 直接跳转到课程页面
-                await self.goto("https://u.unipus.cn/student/course", wait_until="domcontentloaded")
-                await asyncio.sleep(3)
-                if "login" not in self.page.url.lower():
-                    log("登录成功！", "success")
-                    return True
-
+        # 判断登录状态
+        if "login" not in current_url.lower() and "sso" not in current_url.lower():
             log(f"登录成功！当前页面: {current_url}", "success")
             return True
 
-        # 情况2: 跳转到课程或其他页面
-        if "login" not in current_url.lower():
+        if "uai.unipus.cn" in current_url and "login" not in current_url:
             log(f"登录成功！当前页面: {current_url}", "success")
             return True
 
-        # 情况3: 还在登录页，检查错误提示
-        error_el = await self.page.query_selector(".error-message, .el-form-item__error, [class*='error'], .el-message--error")
-        if error_el:
-            error_text = await error_el.inner_text()
-            log(f"登录失败: {error_text}", "error")
-        else:
-            log("登录可能失败，请检查页面", "error")
-        return False
+        # 检查错误
+        try:
+            error_el = await self.page.query_selector("[class*='error'], .el-message--error")
+            if error_el:
+                log(f"登录失败: {await error_el.inner_text()}", "error")
+                return False
+        except Exception:
+            pass
+
+        log(f"登录状态未知，当前URL: {current_url}", "error")
+        await self.page.screenshot(path="login_result.png")
+        return True  # 继续尝试下一步
+
 
     # ── 课程导航 ──
 

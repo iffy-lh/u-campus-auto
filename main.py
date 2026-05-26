@@ -27,7 +27,7 @@ class Config:
     # 账号
     username: str = ""
     password: str = ""
-    login_url: str = "https://u.unipus.cn/user/login"
+    login_url: str = "https://uai.unipus.cn/login"
 
     # 浏览器
     headless: bool = False
