@@ -1,0 +1,25 @@
+# U校园听力自动化 - 依赖列表
+# 安装: pip install -r requirements.txt
+
+# === 核心依赖（必须） ===
+playwright>=1.40.0          # 浏览器自动化
+
+# === 语音识别（必须） ===
+openai-whisper>=20231117    # Whisper 语音转文字
+torch>=2.0.0                # PyTorch（Whisper 依赖）
+numpy>=1.24.0               # 数值计算
+
+# === 音频处理（推荐） ===
+scipy>=1.10.0               # 信号处理
+sounddevice>=0.4.6          # 系统音频录制
+soundfile>=0.12.1           # 音频文件读写
+pydub>=0.25.1               # 音频格式转换
+
+# === 网络（必须） ===
+requests>=2.31.0            # HTTP 请求（下载音频）
+
+# === 工具（可选但推荐） ===
+rich>=13.0.0                # 终端美化输出
+pyyaml>=6.0                 # 配置文件解析
+Pillow>=10.0.0              # 图像处理
+easyocr>=1.7.0              # OCR 文字识别（备用）
