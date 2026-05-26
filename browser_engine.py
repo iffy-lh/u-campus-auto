@@ -281,11 +281,13 @@ class BrowserEngine:
         slow_mo: int = 100,
         viewport: dict = None,
         user_data_dir: str = None,
+        chromium_path: str = None,
     ):
         self.headless = headless
         self.slow_mo = slow_mo
         self.viewport = viewport or {"width": 1280, "height": 900}
-        self.user_data_dir = user_data_dir  # 持久化登录态
+        self.user_data_dir = user_data_dir
+        self._chromium_path = chromium_path  # 自定义 chromium 路径
 
         self._playwright = None
         self._browser: Optional[Browser] = None
@@ -307,6 +309,10 @@ class BrowserEngine:
                 "--disable-gpu",
             ],
         }
+
+        # 如果指定了 chromium 路径，使用系统 chromium
+        if self._chromium_path:
+            launch_opts["executable_path"] = self._chromium_path
 
         if self.user_data_dir:
             # 使用持久化上下文保存登录态

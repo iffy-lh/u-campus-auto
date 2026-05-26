@@ -1,0 +1,6 @@
+__pycache__/
+config.json
+*.png
+screenshots/
+audio_cache/
+browser_data/
