@@ -12,7 +12,7 @@ import argparse
 from pathlib import Path
 from dataclasses import dataclass, field
 
-from browser_engine import BrowserEngine, SELECTORS, console, log
+from browser_engine import BrowserEngine, SELECTORS, console, log, Table
 from audio_engine import (
     AudioRecorder, AudioDownloader, WhisperRecognizer,
     AudioProcessor, TranscriptAnalyzer,

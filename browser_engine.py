@@ -73,6 +73,12 @@ SELECTORS = {
             "button:has-text('登录')",
             "a:has-text('登录')",
             ".el-button--primary",
+            "button.el-button.el-button--primary",
+            "button[type='button']:has-text('登录')",
+            "span:has-text('登录')",
+            "div.login-btn",
+            "[class*='login'] button",
+            "[class*='Login'] button",
         ],
         "captcha_img": [
             "img.captcha",
@@ -448,6 +454,7 @@ class BrowserEngine:
         """
         log("开始登录流程...", "step")
         await self.goto(login_url)
+        await asyncio.sleep(2)
 
         # 填写用户名
         if not await self.fill_any(SELECTORS["login"]["username_input"], username):
@@ -471,25 +478,48 @@ class BrowserEngine:
                     await self.fill_any(SELECTORS["login"]["captcha_input"], captcha_code)
             else:
                 log("等待手动输入验证码...", "warn")
-                await asyncio.sleep(15)  # 给用户时间手动输入
+                await asyncio.sleep(15)
 
-        # 点击登录
-        await self.click_any(SELECTORS["login"]["login_btn"])
-        await asyncio.sleep(3)
+        # 尝试点击登录按钮
+        clicked = await self.click_any(SELECTORS["login"]["login_btn"])
 
-        # 检查是否登录成功
+        # 如果没找到按钮，尝试按 Enter 提交表单
+        if not clicked:
+            log("未找到登录按钮，尝试按 Enter 提交...", "warn")
+            await self.page.keyboard.press("Enter")
+
+        # 等待页面跳转
+        await asyncio.sleep(5)
+
+        # 检查是否登录成功（多重验证）
         current_url = self.page.url
+
+        # 情况1: 跳转到首页
+        if "index.html" in current_url or "home" in current_url.lower():
+            if "logout" in current_url.lower():
+                log(f"检测到 logout 参数，尝试清除后重新访问...", "warn")
+                # 直接跳转到课程页面
+                await self.goto("https://u.unipus.cn/student/course", wait_until="domcontentloaded")
+                await asyncio.sleep(3)
+                if "login" not in self.page.url.lower():
+                    log("登录成功！", "success")
+                    return True
+
+            log(f"登录成功！当前页面: {current_url}", "success")
+            return True
+
+        # 情况2: 跳转到课程或其他页面
         if "login" not in current_url.lower():
             log(f"登录成功！当前页面: {current_url}", "success")
             return True
 
-        # 检查错误提示
-        error_el = await self.page.query_selector(".error-message, .el-form-item__error, [class*='error']")
+        # 情况3: 还在登录页，检查错误提示
+        error_el = await self.page.query_selector(".error-message, .el-form-item__error, [class*='error'], .el-message--error")
         if error_el:
             error_text = await error_el.inner_text()
             log(f"登录失败: {error_text}", "error")
         else:
-            log("登录可能失败，请检查", "error")
+            log("登录可能失败，请检查页面", "error")
         return False
 
     # ── 课程导航 ──
